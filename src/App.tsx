@@ -7,8 +7,9 @@ import { Buffer } from 'buffer';
 // const RPC = "http://127.0.0.1:8899";
 const RPC = "https://api.devnet.solana.com";
 const connection = new Connection(RPC);
+const PERMANENT_LEN = 1 + 32 + 8 + 1 + 4 + 4 + 4 + 4;
+const DYNAMIC_ITEM_SIZE =             32 + 8 + 1 + 1;
 
-const GAME_ACCOUNT_SIZE = 48057;
 const EVENTS_PROGRAM = new PublicKey("9DfgGPSgX25deeqc59moqHvPUFpUjH7Wfa8LVeKbX2bZ");
 
 function App() {
@@ -47,6 +48,8 @@ function App() {
 
   const createEvent = async () => {
     const walletPubkey = (window as any).solana.publicKey;
+    const max_bets = 3;
+    const GAME_ACCOUNT_SIZE = PERMANENT_LEN + DYNAMIC_ITEM_SIZE * max_bets;
     console.log("Wallet", walletPubkey);
     const latestBlockHash = await connection.getLatestBlockhash();
     const transaction = new Transaction({
@@ -61,6 +64,11 @@ function App() {
       programId: EVENTS_PROGRAM,
       space: GAME_ACCOUNT_SIZE,
     }));
+    const command = Buffer.allocUnsafe(9);
+    const date = new Date();
+    date.setMinutes(date.getMinutes() + 5);
+    command.writeUInt8(0, 0);
+    command.writeBigUInt64LE(BigInt(date.valueOf()) / BigInt(1000), 1);
     transaction.add(new TransactionInstruction({
       keys: [
         { pubkey: walletPubkey, isSigner: true,  isWritable: true  },
@@ -68,7 +76,7 @@ function App() {
         { pubkey: new PublicKey("SysvarRent111111111111111111111111111111111"), isSigner: false, isWritable: false },
       ],
       programId: EVENTS_PROGRAM,
-      data: Buffer.from([0]),
+      data: command,
     }));
     transaction.partialSign(gameKey);
     const signedTransaction = await (window as any).solana.signTransaction(transaction);
@@ -148,6 +156,28 @@ function App() {
     console.log("Bet done!", signedTransaction, sendingResult);
   };
 
+  const setWinner = async (choice: number) => {
+    const walletPubkey = (window as any).solana.publicKey;
+    console.log("Wallet", walletPubkey, "game", (window as any).gameKey);
+    const latestBlockHash = await connection.getLatestBlockhash();
+    const transaction = new Transaction({
+      feePayer: (window as any).solana.publicKey,
+      recentBlockhash: latestBlockHash.blockhash,
+    });
+    const instruction = [2, choice];
+    transaction.add(new TransactionInstruction({
+      keys: [
+        { pubkey: walletPubkey, isSigner: true,  isWritable: true  },
+        { pubkey: (window as any).gameKey, isSigner: false, isWritable: true },
+      ],
+      programId: EVENTS_PROGRAM,
+      data: Buffer.from(instruction),
+    }));
+    const signedTransaction = await (window as any).solana.signTransaction(transaction);
+    const sendingResult = await connection.sendRawTransaction(signedTransaction.serialize(), {skipPreflight: false});
+    console.log("SetResult done!", signedTransaction, sendingResult);
+  };
+
   return (
     <div className="App">
       { !wallet ?  <section><button onClick={connect}>Connect</button></section> : (
@@ -160,7 +190,7 @@ function App() {
         <>
         <h1>Event { (eventId as any).toBase58() }</h1>
         <h2>Admin</h2>
-        <p><button>Set Team A won</button> <button>Set Team B won</button> <button>Set Draw</button></p>
+        <p><button onClick={()=>setWinner(1)}>Set Team A won</button> <button onClick={()=>setWinner(1)}>Set Team B won</button> <button onClick={()=>setWinner(3)}>Set Draw</button></p>
         <h2>Player</h2>
         <p>Bets are accepted until: { betsAcceptedUntil }</p>
         <p>Team A: {teamA_sol} SOL, Team B: {teamB_sol} SOL</p>
