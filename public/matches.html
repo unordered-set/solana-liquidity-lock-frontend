@@ -48,7 +48,6 @@
             runAfterConnect(cb) {
                 if (!this.walletConnected) {
                     this.onConnectListeners.push(cb);
-                    connect();
                 } else {
                     cb();
                 }
@@ -133,7 +132,7 @@
             if (!sols_str) return;
             const sol = BigInt(1e9*parseFloat(sols_str));
             
-            state.runAfterConnect(async () => { window.setTimeout(async () => {
+            state.runAfterConnect(() => { window.setTimeout(async () => {
                 const walletPubkey = window.solana.publicKey;
                 const connection = new window.solanaWeb3.Connection(RPC);
                 const latestBlockHash = await connection.getLatestBlockhash();
@@ -264,7 +263,7 @@
                     a.dataset.eventId = eventID;
                     a.dataset.teamId = teamID;
                     a.innerText = `WIN ${text.toUpperCase()}`;
-                    a.className = "btn btn-primary";
+                    a.className = "btn btn-outline-primary";
                     a.disabled = true;
                     div.appendChild(a);
                     return div;
@@ -279,18 +278,18 @@
                 const setMyChoice = (choice) => {
                     switch (choice) {
                         case 0:
-                            btnA.disabled = false;
-                            btnB.disabled = false;
                             btnA.addEventListener('click', makeBet);
                             btnB.addEventListener('click', makeBet);
+                            btnA.disabled = btnB.disabled = false;
+                            btnA.className = btnB.className = "btn btn-primary";
                             break;
                         case 1:
                             // Bet was for team A.
-                            btnB.className = "btn btn-secondary";
+                            btnB.className = "btn";
                             break;
                         case 2:
                             // Bet was for team B.
-                            btnA.className = "btn btn-secondary";
+                            btnA.className = "btn";
                             break;
                     }
                 };
