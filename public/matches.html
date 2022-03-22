@@ -26,8 +26,8 @@
     </script>
     <script type="text/javascript">
         // function Buffer(arg) { return solanaWeb3.Keypair.generate().publicKey.toBuffer().constructor(arg); }
-        const RPC = "http://127.0.0.1:8899";
-        // const RPC = "https://api.devnet.solana.com";
+        // const RPC = "http://127.0.0.1:8899";
+        const RPC = "https://api.devnet.solana.com";
         const EVENTS_PROGRAM = "9DfgGPSgX25deeqc59moqHvPUFpUjH7Wfa8LVeKbX2bZ";
         // const FAKE_EVENT = "5YQgMNV99Yd9zHS9acGotyX3jdKhj8q8Hpci3F5AFp16";
 
@@ -300,7 +300,9 @@
             container.append(...matches.map(match => {
                 const wrapper = MatchContainerWrap();
                 const matchcontainer = wrapper[wrapper.length - 1];
-                const eventKey = match.eventKey;  // FAKE_EVENT;
+                const eventKey = match.eventKey;
+                // const eventKey = FAKE_EVENT;
+
 
                 const stakesRow = StakesRow("- SOL", "- SOL");
                 window.setTimeout(async () => {
