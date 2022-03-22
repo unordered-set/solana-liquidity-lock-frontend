@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>TRUEPARI | MATCHES</title>
+    <meta name="description"
+          content="The first decentralized esports betting exchange, no registrations and instant withdrawals."/>
+
+    <!--Inter UI font-->
+    <link href="https://rsms.me/inter/inter-ui.css" rel="stylesheet">
+
+    <!--vendors styles-->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.8.1/slick.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.8.1/slick-theme.min.css">
+    
+    <!-- Bootstrap CSS / Color Scheme -->
+    <link rel="stylesheet" href="https://truepari.com/css/blue.css" id="theme-color">
+    <link rel="shortcut icon" href="./icon.ico" />
+    
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js" defer="defer"></script>
+    <script type="text/javascript">
+
+    </script>
+    <script type="text/javascript">
+        // function Buffer(arg) { return solanaWeb3.Keypair.generate().publicKey.toBuffer().constructor(arg); }
+        const RPC = "http://127.0.0.1:8899";
+        // const RPC = "https://api.devnet.solana.com";
+        const EVENTS_PROGRAM = "9DfgGPSgX25deeqc59moqHvPUFpUjH7Wfa8LVeKbX2bZ";
+        // const FAKE_EVENT = "5YQgMNV99Yd9zHS9acGotyX3jdKhj8q8Hpci3F5AFp16";
+
+        const BETS_RENT_EXCEMPTION = 1405920;
+
+        class State {
+            constructor() {
+                this.walletConnected = false;
+                this.onConnectListeners = [];
+            }
+
+            setWalletConnected(value) {
+                this.walletConnected = value;
+                this.onConnectListeners.forEach(cb => cb());
+                this.onConnectListeners = [];
+            }
+
+            runAfterConnect(cb) {
+                if (!this.walletConnected) {
+                    this.onConnectListeners.push(cb);
+                    connect();
+                } else {
+                    cb();
+                }
+            }
+        };
+
+        const state = new State();
+
+        const connect = () => {
+            if (!window.solana) {
+                alert("You need to install a Phantom wallet first");
+                window.location.href = "https://phantom.app/";
+            } else {
+                window.solana.on("connect", () => {
+                    state.setWalletConnected(true);
+                });
+                window.solana.connect();
+            }
+        }
+
+        function bnToBuf(bn) {
+            var hex = BigInt(bn).toString(16);
+            if (hex.length % 2) { hex = '0' + hex; }
+            var len = hex.length / 2;
+            var u8 = new Uint8Array(len);
+            var i = 0;
+            var j = hex.length - 2;
+            while (i < len) {
+                u8[i] = parseInt(hex.slice(j, j+2), 16);
+                i += 1;
+                j -= 2;
+            }
+            return u8;
+        }
+
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        };
+
+        const fetchStakes = async (eventID) => {
+            const eventKey = new window.solanaWeb3.PublicKey(eventID);
+            const connection = new window.solanaWeb3.Connection(RPC);
+            let sleepDuration = 500;
+            let account = null;
+            while (true) {
+                account = await connection.getAccountInfo(eventKey);
+                if (!account) {
+                    await sleep(sleepDuration);
+                    sleepDuration *= 2;
+                } else {
+                    break;
+                }
+            }
+
+            const teamA_amount = parseFloat(account.data.readBigUInt64LE(42).toString()) / 1e9;
+            const teamB_amount = parseFloat(account.data.readBigUInt64LE(50).toString()) / 1e9;
+
+            return [teamA_amount, teamB_amount];
+        };
+
+        const fetchMyChoice = async (myWallet, eventID) => {
+            const eventKey = new window.solanaWeb3.PublicKey(eventID);
+            const programKey = new window.solanaWeb3.PublicKey(EVENTS_PROGRAM);
+            const connection = new window.solanaWeb3.Connection(RPC);
+            let sleepDuration = 500;
+            let account = null;
+            const seed = `${eventID.substr(0,5)}`;
+            const accountKey = await window.solanaWeb3.PublicKey.createWithSeed(myWallet, seed, programKey);
+            console.log("Computed PDA for", myWallet.toBase58(), seed, accountKey);
+            account = await connection.getAccountInfo(accountKey);
+            if (!account) {
+                return 0;
+            }
+            return account.data.readUint8(73);
+        }
+
+        const makeBet = (e) => {
+            const eventId = new solanaWeb3.PublicKey(e.target.dataset.eventId);
+            const teamId = parseInt(e.target.dataset.teamId);
+            const programKey = new window.solanaWeb3.PublicKey(EVENTS_PROGRAM);
+            const sols_str = window.prompt("How much SOLs?");
+            if (!sols_str) return;
+            const sol = BigInt(1e9*parseFloat(sols_str));
+            
+            state.runAfterConnect(async () => { window.setTimeout(async () => {
+                const walletPubkey = window.solana.publicKey;
+                const connection = new window.solanaWeb3.Connection(RPC);
+                const latestBlockHash = await connection.getLatestBlockhash();
+                const seed = `${eventId.toBase58().substr(0, 5)}`;  // Without this clipping I was getting an error in SystemProgram.
+                const pdaBetKey = await window.solanaWeb3.PublicKey.createWithSeed(walletPubkey, seed, programKey);
+                const transaction = new window.solanaWeb3.Transaction({
+                    feePayer: walletPubkey,
+                    recentBlockhash: latestBlockHash.blockhash,
+                });
+                // alert("Check that this account key is owned by program in Smart Contract");
+                // Making a bet is only available if no bet exists, so it is safe to do this.
+                console.log("Computed PDA for", walletPubkey.toBase58(), " + ", seed, " = ", pdaBetKey.toBase58());
+                transaction.add(window.solanaWeb3.SystemProgram.createAccountWithSeed({
+                    fromPubkey: walletPubkey,
+                    basePubkey: walletPubkey,
+                    newAccountPubkey: pdaBetKey,
+                    seed: seed,
+                    lamports: parseInt(sol.toString()) + BETS_RENT_EXCEMPTION,
+                    space: 74,
+                    programId: programKey,
+                }));
+                //const signedCreateAccountTransaction = await window.solana.signTransaction(createBetAccountTransaction);
+                //await connection.sendRawTransaction(signedCreateAccountTransaction.serialize(), {skipPreflight: false});
+                //await window.solanaWeb3.sendAndConfirmRawTransaction(connection, signedCreateAccountTransaction.serialize());
+                //console.log("Created account", pdaBetKey.toBase58());
+                
+                const instruction = [1, teamId];
+                bnToBuf(sol).forEach(n => instruction.push(n));
+                while (instruction.length < 10) instruction.push(0);
+                // transaction.add(SystemProgram.transfer({
+                //   fromPubkey: walletPubkey,
+                //   toPubkey: EVENTS_PROGRAM,
+                //   lamports: parseInt(sol.toString()),
+                // }));
+                // const nextBlockHash = await connection.getLatestBlockhash();
+                // const transaction = new window.solanaWeb3.Transaction({
+                //     feePayer: walletPubkey,
+                //     recentBlockhash: nextBlockHash.blockhash,
+                // });
+                transaction.add(new window.solanaWeb3.TransactionInstruction({
+                    keys: [
+                        { pubkey: walletPubkey, isSigner: true,  isWritable: true  },
+                        { pubkey: eventId, isSigner: false, isWritable: true },
+                        { pubkey: pdaBetKey, isSigner: false, isWritable: true },
+                    ],
+                    programId: programKey,
+                    data: instruction,
+                }));
+                const signedTransaction = await window.solana.signTransaction(transaction);
+                const sendingResult = await connection.sendRawTransaction(signedTransaction.serialize(), {skipPreflight: false});
+                console.log("Bet done!", signedTransaction, sendingResult);
+            }, 0)});
+        }
+
+        // Connect button.
+        window.addEventListener('load', () => {
+            const connectBtn = document.getElementById("connect-btn");
+            if (!window.solana) {
+                connectBtn.innerText = "Download wallet";
+                connectBtn.href = "https://phantom.app/";
+            } else {
+                connectBtn.href = "javascript:connect()";
+            }
+        });
+
+        const Matches = (matches, container) => {
+            const NestedDivs = (classes) => {
+                const levels = classes.map(c => {
+                    const result = document.createElement("div");
+                    result.className = c;
+                    return result;
+                });
+                for (let i = 0; i < levels.length - 1; ++i) {
+                    levels[i].appendChild(levels[i+1]);
+                }
+                return levels;
+            };
+
+            const MatchContainerWrap = () => {
+                return NestedDivs(["row mt-5", "col-md-12", "card text-center", "card-body", "container"]);
+            };
+
+            const Header = (text) => {
+                const wrapper = NestedDivs(["row", "col-md-12"]);
+                const p = document.createElement("p");
+                p.className = "card-text";
+                const node1 = document.createTextNode(text);
+                const statisticsText = document.createTextNode(" | Choose who win in this matches and ");
+                const statisticsLink = document.createElement("a");
+                statisticsLink.href = "https://www.hltv.org/";
+                statisticsLink.target = "_blank";
+                statisticsLink.innerText = "check statistics";
+                p.append(node1, statisticsText, statisticsLink);
+                wrapper[wrapper.length - 1].appendChild(p);
+                return wrapper[0];
+            };
+
+            const WhoAndWhenRow = (teamA, teamB, time) => {
+                const result = document.createElement("div");
+                result.className = "row";
+                result.append(...[teamA, time, teamB].map(t => {
+                    const e = document.createElement("div");
+                    e.className = "col-md-4";
+                    e.innerText = t;
+                    return e;
+                }));
+                return result;
+            }
+
+            const StakesRow = (teamA_amount, teamB_amount) => {
+                const elements = WhoAndWhenRow(teamA_amount, teamB_amount, "vs");
+                const setStakesData = (stakes) => {
+                    elements.children[0].innerText = stakes[0].toFixed(2);
+                    elements.children[2].innerText = stakes[1].toFixed(2);
+                };
+                return { elements, setStakesData }
+            }
+
+            const MakeBetRow = (teamA, teamB, eventID) => {
+                const result = document.createElement("div");
+                result.className = "row";
+
+                const makeButton = (text, teamID) => {
+                    const div = document.createElement("div");
+                    div.className = "col-md-4";
+                    const a = document.createElement("a");
+                    //a.href = 'javascript:makeBet()';
+                    a.dataset.eventId = eventID;
+                    a.dataset.teamId = teamID;
+                    a.innerText = `WIN ${text.toUpperCase()}`;
+                    a.className = "btn btn-primary";
+                    a.disabled = true;
+                    div.appendChild(a);
+                    return div;
+                }
+
+                const separator = document.createElement("div");
+                separator.className = "col-md-4";
+                
+                result.append(makeButton(teamA, 1), separator, makeButton(teamB, 2));
+                const btnA = result.children[0].firstChild;
+                const btnB = result.children[2].firstChild;
+                const setMyChoice = (choice) => {
+                    switch (choice) {
+                        case 0:
+                            btnA.disabled = false;
+                            btnB.disabled = false;
+                            btnA.addEventListener('click', makeBet);
+                            btnB.addEventListener('click', makeBet);
+                            break;
+                        case 1:
+                            // Bet was for team A.
+                            btnB.className = "btn btn-secondary";
+                            break;
+                        case 2:
+                            // Bet was for team B.
+                            btnA.className = "btn btn-secondary";
+                            break;
+                    }
+                };
+                return {elements: result, setMyChoice};
+            };
+
+            container.append(...matches.map(match => {
+                const wrapper = MatchContainerWrap();
+                const matchcontainer = wrapper[wrapper.length - 1];
+                const eventKey = match.eventKey;  // FAKE_EVENT;
+
+                const stakesRow = StakesRow("- SOL", "- SOL");
+                window.setTimeout(async () => {
+                    const stakes = await fetchStakes(eventKey);
+                    stakesRow.setStakesData(stakes);
+                }, 0);
+
+                const betRow = MakeBetRow(match.team1.name, match.team2.name, eventKey);
+                state.runAfterConnect(() => { window.setTimeout(async () => {
+                    const myChoice = await fetchMyChoice(window.solana.publicKey, eventKey);
+                    console.log("My choice for", eventKey, "is", myChoice);
+                    betRow.setMyChoice(myChoice);
+                }, 0); });
+
+                matchcontainer.append(
+                    Header(match.sport.name),
+                    document.createElement("br"),
+                    WhoAndWhenRow(match.team1.name, match.team2.name, "12:39"),
+                    document.createElement("br"),
+                    stakesRow.elements,
+                    document.createElement("br"),
+                    betRow.elements,
+                );
+                return wrapper[0];
+            }));
+        };
+    </script>
+</head>
+<body>
+
+<!--navigation-->
+<section class="smart-scroll">
+    <div class="container-fluid">
+        <nav class="navbar navbar-expand-md navbar-dark">
+            <a class="navbar-brand heading-black" href="matches.html">
+                TRUEPARI
+            </a>
+        </nav>
+    </div>
+</section>
+
+<section class="py-7 py-md-0 bg-hero" id="home">
+    <div class="container">
+        <div class="row vh-md-100">
+            <div class="col-md-8 col-sm-10 col-12 mx-auto my-auto text-center">
+                <h1 class="heading-black text-capitalize">Wellcome to beta test</h1>
+                <div class="mx-auto text-center">
+                    <a href="#" class="btn btn-primary" id="connect-btn">connect wallet</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="py-7 bg-dark section-angle top-left bottom-left" id="blog">
+    <div class="container" id="matches-container">
+        <div class="row">
+            <div class="col-md-6 mx-auto text-center">
+                <h2 class="heading-black">Matches</h2>
+            </div>
+        </div>
+</section>
+
+<script type="text/javascript">
+fetch("https://truepari.lol/api/v1/matches/upcoming", {
+    method: "GET",
+}).then(x=>x.json()).then(matches => {
+    const container = document.getElementById("matches-container");
+    Matches(matches.items, container);
+});
+</script>
+
+<!--footer-->
+<footer class="py-6">
+    <div class="container">
+        <div class="row">
+            <div class="col-sm-5 mr-auto">
+                <h5>TRUEPARI</h5>
+                <p class="text-muted">The first decentralized esports betting exchange, no registrations and instant withdrawals.</p>
+                <ul class="list-inline social social-sm">
+                    <li class="list-inline-item">
+                        <a href=""><i class="fa-brands fa-discord"></i></a>
+                    </li>
+                </ul>
+            </div>
+            
+        </div>
+        <div class="row mt-5">
+            <div class="col-12 text-muted text-center small-xl">
+                &copy; 2022 TRUEPARI - All Rights Reserved
+            </div>
+        </div>
+    </div>
+</footer>
+
+<!--scroll to top-->
+<div class="scroll-top">
+    <i class="fa fa-angle-up" aria-hidden="true"></i>
+</div>
+
+<!-- jQuery first, then Popper.js, then Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.7.3/feather.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.8.1/slick.min.js"></script>
+<script src="https://truepari.com/js/scripts.js"></script>
+</body>
+</html>

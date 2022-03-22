@@ -7,8 +7,7 @@ import { Buffer } from 'buffer';
 // const RPC = "http://127.0.0.1:8899";
 const RPC = "https://api.devnet.solana.com";
 const connection = new Connection(RPC);
-const PERMANENT_LEN = 1 + 32 + 8 + 1 + 4 + 4 + 4 + 4;
-const DYNAMIC_ITEM_SIZE =             32 + 8 + 1 + 1;
+const GAME_ACCOUNT_SIZE = 58;
 
 const EVENTS_PROGRAM = new PublicKey("9DfgGPSgX25deeqc59moqHvPUFpUjH7Wfa8LVeKbX2bZ");
 
@@ -48,8 +47,6 @@ function App() {
 
   const createEvent = async () => {
     const walletPubkey = (window as any).solana.publicKey;
-    const max_bets = 3;
-    const GAME_ACCOUNT_SIZE = PERMANENT_LEN + DYNAMIC_ITEM_SIZE * max_bets;
     console.log("Wallet", walletPubkey);
     const latestBlockHash = await connection.getLatestBlockhash();
     const transaction = new Transaction({
@@ -66,7 +63,7 @@ function App() {
     }));
     const command = Buffer.allocUnsafe(9);
     const date = new Date();
-    date.setMinutes(date.getMinutes() + 5);
+    date.setMinutes(date.getMinutes() + 5000);
     command.writeUInt8(0, 0);
     command.writeBigUInt64LE(BigInt(date.valueOf()) / BigInt(1000), 1);
     transaction.add(new TransactionInstruction({
