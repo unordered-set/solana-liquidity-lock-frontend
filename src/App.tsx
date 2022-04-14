@@ -185,7 +185,7 @@ function App() {
     const SECONDS_PER_YEAR = 360 * 24 * 3600;
     const INTEREST_ALLOCATION_PERIOD_SECONDS = 60;
 
-    const interestWithdrawable = ((new Date() as any) - (stakingStarted as any)) / 1000 / INTEREST_ALLOCATION_PERIOD_SECONDS;
+    const interestWithdrawable = Math.floor(((new Date() as any) - (stakingStarted as any)) / 1000 / INTEREST_ALLOCATION_PERIOD_SECONDS);
     console.log("interestWithdrawable", interestWithdrawable, "events happened");
     const singleIntervalInterest = 1.0 * ANNUAL_INTEREST_NOMITATORS[0] / ANNUAL_INTEREST_DENOMITATORS[0] / SECONDS_PER_YEAR * INTEREST_ALLOCATION_PERIOD_SECONDS;
     const totalInterest = parseInt(balanceAtoms) * singleIntervalInterest * interestWithdrawable / 1e9;
