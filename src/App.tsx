@@ -9,9 +9,6 @@ import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 // const RPC = "http://127.0.0.1:8899";
 const RPC = "https://api.devnet.solana.com";
 const connection = new Connection(RPC);
-const GAME_ACCOUNT_SIZE = 58;
-
-const EVENTS_PROGRAM = new PublicKey("9DfgGPSgX25deeqc59moqHvPUFpUjH7Wfa8LVeKbX2bZ");
 
 function App() {
   const [wallet, setWallet] = useState(null);
@@ -19,10 +16,9 @@ function App() {
   const [seed, setSeed] = useState("[0x50, 0x00, 0x00, 0x10, 0x20, 0xad, 0x35]");
   const [pdaAddress, setPdaAddress] = useState("");
   const [stakingValue, setStakingValue] = useState("1");
-  const [eventId, setEventId] = useState(null);
-  const [betsAcceptedUntil, setBetsAcceptedUntil] = useState("");
-  const [teamA_sol, setTeamA_sol] = useState(0);
-  const [teamB_sol, setTeamB_sol] = useState(0);
+  const [newStakeID, setNewStakeID] = useState("KN5NSTQ/100003");  // Да, это нормально что у всех будет одно и то же, но если кому-то нужно два стейка то надо увеличивать число
+  const [fetchStakeID, setFetchStakeID] = useState("KN5NSTQ/100003");
+  const [stakeInfo, setStakeInfo] = useState("");
 
   const connect = () => {
     const solana: any = (window as any).solana;
@@ -32,155 +28,6 @@ function App() {
     solana.connect();
   };
 
-  const fetchEventData = async (event: PublicKey) => {
-    const account = await connection.getAccountInfo(event);
-    if (!account) return;
-    const timestamp = account.data.readBigUInt64LE(33);
-    setBetsAcceptedUntil((new Date(parseInt(timestamp.toString()) * 1000)).toString());
-    console.log(account);
-    const bets_amount = account.data.readUInt32LE(0x2a);
-    console.log(bets_amount);
-    let amounts = [0, 0, 0];
-    for (let i = 0; i < bets_amount; ++i) {
-      const amount = account.data.readBigInt64LE(0x2a + 4 + 32*bets_amount + 4 + i*8);
-      const choice = account.data.readUint8(     0x2a + 4 + 32*bets_amount + 4 + 8*bets_amount + 4 + i);
-      console.log(0x2a + 4 + 32*bets_amount + i*8, amount, choice);
-      amounts[choice] += parseInt(amount.toString());
-    }
-    setTeamA_sol(1.0 * amounts[1] / 1e9);
-    setTeamB_sol(1.0 * amounts[2] / 1e9);
-  };
-
-  const createEvent = async () => {
-    const walletPubkey = (window as any).solana.publicKey;
-    console.log("Wallet", walletPubkey);
-    const latestBlockHash = await connection.getLatestBlockhash();
-    const transaction = new Transaction({
-      feePayer: (window as any).solana.publicKey,
-      recentBlockhash: latestBlockHash.blockhash,
-    });
-    const gameKey = Keypair.generate();
-    transaction.add(SystemProgram.createAccount({
-      fromPubkey: walletPubkey,
-      lamports: (await connection.getMinimumBalanceForRentExemption(GAME_ACCOUNT_SIZE)),
-      newAccountPubkey: gameKey.publicKey,
-      programId: EVENTS_PROGRAM,
-      space: GAME_ACCOUNT_SIZE,
-    }));
-    const command = Buffer.allocUnsafe(9);
-    const date = new Date();
-    date.setMinutes(date.getMinutes() + 5000);
-    command.writeUInt8(0, 0);
-    command.writeBigUInt64LE(BigInt(date.valueOf()) / BigInt(1000), 1);
-    transaction.add(new TransactionInstruction({
-      keys: [
-        { pubkey: walletPubkey, isSigner: true,  isWritable: true  },
-        { pubkey: gameKey.publicKey, isSigner: false, isWritable: true },
-        { pubkey: new PublicKey("SysvarRent111111111111111111111111111111111"), isSigner: false, isWritable: false },
-      ],
-      programId: EVENTS_PROGRAM,
-      data: command,
-    }));
-    transaction.partialSign(gameKey);
-    const signedTransaction = await (window as any).solana.signTransaction(transaction);
-    // const sendingResult = await connection.sendRawTransaction(signedTransaction.serialize(), {skipPreflight: true});
-    const sendingResult = await connection.sendRawTransaction(signedTransaction.serialize(), {skipPreflight: false});
-    console.log("Game account created!", signedTransaction, sendingResult);
-    (window as any).gameKey = gameKey.publicKey;
-    setEventId(gameKey.publicKey as any);
-    window.setTimeout(()=>{ fetchEventData(gameKey.publicKey); }, 1000);
-  }
-
-  const setEventIdFromInput = () => {
-    const gameKey = new PublicKey((window.document.getElementById("event-id") as HTMLInputElement).value);
-    (window as any).gameKey = gameKey;
-    setEventId(gameKey as any);
-    fetchEventData(gameKey);
-  };
-
-  const vote = async (choice: number) => {
-    const sols_str = window.prompt("How much SOLs?");
-    if (!sols_str) return;
-    const sol = BigInt(1e9*parseFloat(sols_str));
-
-    function bnToBuf(bn: bigint) {
-      var hex = BigInt(bn).toString(16);
-      if (hex.length % 2) { hex = '0' + hex; }
-    
-      var len = hex.length / 2;
-      var u8 = new Uint8Array(len);
-    
-      var i = 0;
-      var j = hex.length - 2;
-      while (i < len) {
-        u8[i] = parseInt(hex.slice(j, j+2), 16);
-        i += 1;
-        j -= 2;
-      }
-    
-      return u8;
-    }
-
-    const walletPubkey = (window as any).solana.publicKey;
-    console.log("Wallet", walletPubkey, "game", (window as any).gameKey);
-    const latestBlockHash = await connection.getLatestBlockhash();
-    const transaction = new Transaction({
-      feePayer: (window as any).solana.publicKey,
-      recentBlockhash: latestBlockHash.blockhash,
-    });
-    const instruction = [1, choice];
-    bnToBuf(sol).forEach(n => instruction.push(n));
-    const tmpStorageKey = Keypair.generate();
-    transaction.add(SystemProgram.createAccount({
-      fromPubkey: walletPubkey,
-      lamports: parseInt(sol.toString()),
-      newAccountPubkey: tmpStorageKey.publicKey,
-      programId: EVENTS_PROGRAM,
-      space: 0,
-    }));
-    while (instruction.length < 10) instruction.push(0);
-    // transaction.add(SystemProgram.transfer({
-    //   fromPubkey: walletPubkey,
-    //   toPubkey: EVENTS_PROGRAM,
-    //   lamports: parseInt(sol.toString()),
-    // }));
-    transaction.add(new TransactionInstruction({
-      keys: [
-        { pubkey: walletPubkey, isSigner: true,  isWritable: true  },
-        { pubkey: (window as any).gameKey, isSigner: false, isWritable: true },
-        { pubkey: tmpStorageKey.publicKey, isSigner: false, isWritable: true },
-      ],
-      programId: EVENTS_PROGRAM,
-      data: Buffer.from(instruction),
-    }));
-    transaction.partialSign(tmpStorageKey);
-    const signedTransaction = await (window as any).solana.signTransaction(transaction);
-    const sendingResult = await connection.sendRawTransaction(signedTransaction.serialize(), {skipPreflight: false});
-    console.log("Bet done!", signedTransaction, sendingResult);
-  };
-
-  const setWinner = async (choice: number) => {
-    const walletPubkey = (window as any).solana.publicKey;
-    console.log("Wallet", walletPubkey, "game", (window as any).gameKey);
-    const latestBlockHash = await connection.getLatestBlockhash();
-    const transaction = new Transaction({
-      feePayer: (window as any).solana.publicKey,
-      recentBlockhash: latestBlockHash.blockhash,
-    });
-    const instruction = [2, choice];
-    transaction.add(new TransactionInstruction({
-      keys: [
-        { pubkey: walletPubkey, isSigner: true,  isWritable: true  },
-        { pubkey: (window as any).gameKey, isSigner: false, isWritable: true },
-      ],
-      programId: EVENTS_PROGRAM,
-      data: Buffer.from(instruction),
-    }));
-    const signedTransaction = await (window as any).solana.signTransaction(transaction);
-    const sendingResult = await connection.sendRawTransaction(signedTransaction.serialize(), {skipPreflight: false});
-    console.log("SetResult done!", signedTransaction, sendingResult);
-  };
-
   const onProgramIDChanged = async (newId: string, seed: string) => {
     setProgramID(newId);
     setSeed(seed);
@@ -188,7 +35,6 @@ function App() {
     setPdaAddress(`${bump}, ${pda.toBase58()}`);
   };
 
-  const STAKING_ACCOUNT_SEED = "KN5NSTQ/100003";  // Если надо иметь несколько аккаунтов, то надо менять это число.
   const PROGRAM = new PublicKey("9vp3FvFCrXeFmsi4hiH7G1maX1DcDoJgDNU3JMf3BrMb");
   // Все поля ниже вычислены, используя форму выше. Как только что-то поменяется, их надо будет перевычислить.
   const PROGRAM_ASSOCIATED_ACCOUNT = new PublicKey("6R5wZEKJPtm3EkV6n5W5u5r5o7nYCnnK9uA5dwtCU7P7");
@@ -197,10 +43,10 @@ function App() {
   const STAKING_ACCOUNT_SIZE = 1 + 32 + 8 + 2 + 8 + 8 + 8;
   const BUMP = 255;
   
-  const stake = async () => {
+  const stake = async (stakeID: string) => {
     const walletPubkey: PublicKey = (window as any).solana.publicKey;
-    const stakingAccountPubkey = await PublicKey.createWithSeed(walletPubkey, STAKING_ACCOUNT_SEED, PROGRAM);
-    console.log("Computed PDA for", walletPubkey.toBase58(), " + ", STAKING_ACCOUNT_SEED, " = ", stakingAccountPubkey.toBase58());
+    const stakingAccountPubkey = await PublicKey.createWithSeed(walletPubkey, stakeID, PROGRAM);
+    console.log("Computed PDA for", walletPubkey.toBase58(), " + ", stakeID, " = ", stakingAccountPubkey.toBase58());
     const latestBlockHash = await connection.getLatestBlockhash();
     const transaction = new Transaction({
         feePayer: walletPubkey,
@@ -210,7 +56,7 @@ function App() {
         fromPubkey: walletPubkey,
         basePubkey: walletPubkey,
         newAccountPubkey: stakingAccountPubkey,
-        seed: STAKING_ACCOUNT_SEED,
+        seed: stakeID,
         lamports: await connection.getMinimumBalanceForRentExemption(STAKING_ACCOUNT_SIZE),
         space: STAKING_ACCOUNT_SIZE,
         programId: PROGRAM,
@@ -265,10 +111,10 @@ function App() {
     }
   };
 
-  const collect = async (policy: number) => {
+  const collect = async (policy: number, stakeID: string) => {
     const walletPubkey: PublicKey = (window as any).solana.publicKey;
-    const stakingAccountPubkey = await PublicKey.createWithSeed(walletPubkey, STAKING_ACCOUNT_SEED, PROGRAM);
-    console.log("Computed PDA for", walletPubkey.toBase58(), " + ", STAKING_ACCOUNT_SEED, " = ", stakingAccountPubkey.toBase58());
+    const stakingAccountPubkey = await PublicKey.createWithSeed(walletPubkey, stakeID, PROGRAM);
+    console.log("Computed PDA for", walletPubkey.toBase58(), " + ", stakeID, " = ", stakingAccountPubkey.toBase58());
 
     const SPL_ASSOCIATED_TOKEN_ACCOUNT_PROGRAM_ID: PublicKey = new PublicKey(
       'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
@@ -318,6 +164,34 @@ function App() {
     }
   };
 
+  const fetchStakeState = async (stakeID: string) => {
+    const walletPubkey: PublicKey = (window as any).solana.publicKey;
+    const stakingAccountPubkey = await PublicKey.createWithSeed(walletPubkey, stakeID, PROGRAM);
+    console.log("Computed PDA for", walletPubkey.toBase58(), " + ", stakeID, " = ", stakingAccountPubkey.toBase58());
+    const account = await connection.getAccountInfo(stakingAccountPubkey);
+    if (!account) {
+      console.log("Unable to get account, nothingt to do");
+      return;
+    }
+    const stakedAmount = account.data.readBigUInt64LE(43);
+
+    const balanceAtoms = stakedAmount.toString();
+    const balance = balanceAtoms.substr(0, balanceAtoms.length - 9) + "," + balanceAtoms.substr(balanceAtoms.length - 9);
+    const lockStarted = new Date(parseInt((account.data.readBigUInt64LE(33) * BigInt(1000)).toString()));
+    const stakingStarted = new Date(parseInt((account.data.readBigUInt64LE(51) * BigInt(1000)).toString()));
+
+    const ANNUAL_INTEREST_NOMITATORS = [15, 17];
+    const ANNUAL_INTEREST_DENOMITATORS = [100, 100];
+    const SECONDS_PER_YEAR = 360 * 24 * 3600;
+    const INTEREST_ALLOCATION_PERIOD_SECONDS = 60;
+
+    const interestWithdrawable = ((new Date() as any) - (stakingStarted as any)) / 1000 / INTEREST_ALLOCATION_PERIOD_SECONDS;
+    console.log("interestWithdrawable", interestWithdrawable, "events happened");
+    const singleIntervalInterest = 1.0 * ANNUAL_INTEREST_NOMITATORS[0] / ANNUAL_INTEREST_DENOMITATORS[0] / SECONDS_PER_YEAR * INTEREST_ALLOCATION_PERIOD_SECONDS;
+    const totalInterest = parseInt(balanceAtoms) * singleIntervalInterest * interestWithdrawable / 1e9;
+    setStakeInfo(`Locked amount ${balance} + ${totalInterest}`)
+  };
+
   return (
     <div className="App">
       { !wallet ?  <section><button onClick={connect}>Connect</button></section> : <></>}
@@ -331,12 +205,19 @@ function App() {
       <p>{pdaAddress}</p>
       { wallet ? <>
       <h2>Client Lounge</h2>
+      <h3>Existing Stake</h3>
       <p>
-        <input type="text" onChange={t=>setStakingValue(t.target.value)} value={stakingValue} />TKN&nbsp;&nbsp;<button onClick={()=>stake()}>Stake</button>
+        <input type="text" value={fetchStakeID} onChange={t=>setFetchStakeID(t.target.value)} />
+        <button onClick={()=>fetchStakeState(fetchStakeID)}>Fetch</button>
+        <span>{ stakeInfo }</span>
+      </p>
+      <h3>Create Stake</h3>
+      <p>
+        <input type="text" value={newStakeID} onChange={t=>setNewStakeID(t.target.value)} />&nbsp;<input type="text" onChange={t=>setStakingValue(t.target.value)} value={stakingValue} />&thinsp;TKN&nbsp;&nbsp;<button onClick={()=>stake(newStakeID)}>Stake</button>
         &nbsp;&nbsp;&nbsp;
-        <button onClick={()=>collect(1)}>Collect Interest</button>&nbsp;&nbsp;&nbsp;
-        <button onClick={()=>collect(2)}>Compound Interest</button>&nbsp;&nbsp;&nbsp;
-        <button onClick={()=>collect(3)}>Close Account</button>
+        <button onClick={()=>collect(1, newStakeID)}>Collect Interest</button>&nbsp;&nbsp;&nbsp;
+        <button onClick={()=>collect(2, newStakeID)}>Compound Interest</button>&nbsp;&nbsp;&nbsp;
+        <button onClick={()=>collect(3, newStakeID)}>Close Account</button>
       </p>
       </> : <></> }
     </div>
